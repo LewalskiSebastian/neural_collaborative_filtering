@@ -1,10 +1,12 @@
 '''
-Created on Aug 9, 2016
+Created on Apr 15, 2016
+Modified on Jan 9, 2021
 
 Keras Implementation of Generalized Matrix Factorization (GMF) recommender model in:
 He Xiangnan et al. Neural Collaborative Filtering. In WWW 2017.  
 
 @author: Xiangnan He (xiangnanhe@gmail.com)
+@modifications author: Sebastian Lewalski
 '''
 import numpy as np
 import theano.tensor as T
@@ -17,7 +19,7 @@ from keras.layers import Embedding, Input, Dense, merge, Reshape, Merge, Flatten
 from keras.optimizers import Adagrad, Adam, SGD, RMSprop
 from keras.regularizers import l2
 from Dataset import Dataset
-from evaluate import evaluate_model
+from evaluate import evaluate_model, getUsersHistory, getItemsFeatures, getPop
 from time import time
 import multiprocessing as mp
 import sys
@@ -108,6 +110,8 @@ if __name__ == '__main__':
     epochs = args.epochs
     batch_size = args.batch_size
     verbose = args.verbose
+
+    similarity_arg = 'jaccard'
     
     topK = 10
     evaluation_threads = 1 #mp.cpu_count()
@@ -136,11 +140,20 @@ if __name__ == '__main__':
     
     # Init performance
     t1 = time()
-    (hits, ndcgs) = evaluate_model(model, testRatings, testNegatives, topK, evaluation_threads)
-    hr, ndcg = np.array(hits).mean(), np.array(ndcgs).mean()
-    #mf_embedding_norm = np.linalg.norm(model.get_layer('user_embedding').get_weights())+np.linalg.norm(model.get_layer('item_embedding').get_weights())
-    #p_norm = np.linalg.norm(model.get_layer('prediction').get_weights()[0])
-    print('Init: HR = %.4f, NDCG = %.4f\t [%.1f s]' % (hr, ndcg, time()-t1))
+    items_pop = getPop(args.dataset)
+    users_history = getUsersHistory(args.dataset)
+    items_features = getItemsFeatures()
+    (hits, ndcgs, novelty, expectedness, IDL, unserendipities) = evaluate_model(model, testRatings, testNegatives, topK,
+                                                                                evaluation_threads,
+                                                                                items_pop, items_features,
+                                                                                users_history,
+                                                                                similarity=similarity_arg)
+    hr, ndcg, novelty, expectedness, IDL, unserendipity = np.array(hits).mean(), np.array(ndcgs).mean(), np.array(
+        novelty).mean(), np.array(expectedness).mean(), np.array(IDL).mean(), np.array(
+        unserendipities).mean()
+    print(
+        'Result: HR = %.4f, NDCG = %.4f, novelty = %.10f, expectedness = %.10f, IDL = %.10f, unserendipity = %.10f' % (
+            hr, ndcg, novelty, expectedness, IDL, unserendipity))
     
     # Train model
     best_hr, best_ndcg, best_iter = hr, ndcg, -1
@@ -157,7 +170,12 @@ if __name__ == '__main__':
         
         # Evaluation
         if epoch %verbose == 0:
-            (hits, ndcgs) = evaluate_model(model, testRatings, testNegatives, topK, evaluation_threads)
+            (hits, ndcgs, novelty, expectedness, IDL, unserendipities) = evaluate_model(model, testRatings,
+                                                                                        testNegatives, topK,
+                                                                                        evaluation_threads,
+                                                                                        items_pop, items_features,
+                                                                                        users_history,
+                                                                                        similarity=similarity_arg)
             hr, ndcg, loss = np.array(hits).mean(), np.array(ndcgs).mean(), hist.history['loss'][0]
             print('Iteration %d [%.1f s]: HR = %.4f, NDCG = %.4f, loss = %.4f [%.1f s]' 
                   % (epoch,  t2-t1, hr, ndcg, loss, time()-t2))
@@ -165,6 +183,18 @@ if __name__ == '__main__':
                 best_hr, best_ndcg, best_iter = hr, ndcg, epoch
                 if args.out > 0:
                     model.save_weights(model_out_file, overwrite=True)
+
+    (hits, ndcgs, novelty, expectedness, IDL, unserendipities) = evaluate_model(model, testRatings, testNegatives, topK,
+                                                                                evaluation_threads,
+                                                                                items_pop, items_features,
+                                                                                users_history,
+                                                                                similarity=similarity_arg)
+    hr, ndcg, novelty, expectedness, IDL, unserendipity = np.array(hits).mean(), np.array(ndcgs).mean(), np.array(
+        novelty).mean(), np.array(expectedness).mean(), np.array(IDL).mean(), np.array(
+        unserendipities).mean()
+    print(
+        'Last iter result: HR = %.4f, NDCG = %.4f, novelty = %.10f, expectedness = %.10f, IDL = %.10f, unserendipity = %.10f' % (
+            hr, ndcg, novelty, expectedness, IDL, unserendipity))
 
     print("End. Best Iteration %d:  HR = %.4f, NDCG = %.4f. " %(best_iter, best_hr, best_ndcg))
     if args.out > 0:
