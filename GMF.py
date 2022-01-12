@@ -154,7 +154,8 @@ if __name__ == '__main__':
     print(
         'Result: HR = %.4f, NDCG = %.4f, novelty = %.10f, expectedness = %.10f, IDL = %.10f, unserendipity = %.10f' % (
             hr, ndcg, novelty, expectedness, IDL, unserendipity))
-    
+
+    train_times = []
     # Train model
     best_hr, best_ndcg, best_iter = hr, ndcg, -1
     for epoch in xrange(epochs):
@@ -167,15 +168,17 @@ if __name__ == '__main__':
                          np.array(labels), # labels 
                          batch_size=batch_size, nb_epoch=1, verbose=0, shuffle=True)
         t2 = time()
+        train_times.append(t2 - t1)
         
         # Evaluation
         if epoch %verbose == 0:
-            (hits, ndcgs, novelty, expectedness, IDL, unserendipities) = evaluate_model(model, testRatings,
-                                                                                        testNegatives, topK,
-                                                                                        evaluation_threads,
-                                                                                        items_pop, items_features,
-                                                                                        users_history,
-                                                                                        similarity=similarity_arg)
+            (hits, ndcgs) = evaluate_model(model, testRatings,
+                                           testNegatives, topK,
+                                           evaluation_threads,
+                                           items_pop, items_features,
+                                           users_history,
+                                           similarity=similarity_arg,
+                                           is_simple=True)
             hr, ndcg, loss = np.array(hits).mean(), np.array(ndcgs).mean(), hist.history['loss'][0]
             print('Iteration %d [%.1f s]: HR = %.4f, NDCG = %.4f, loss = %.4f [%.1f s]' 
                   % (epoch,  t2-t1, hr, ndcg, loss, time()-t2))
@@ -197,5 +200,6 @@ if __name__ == '__main__':
             hr, ndcg, novelty, expectedness, IDL, unserendipity))
 
     print("End. Best Iteration %d:  HR = %.4f, NDCG = %.4f. " %(best_iter, best_hr, best_ndcg))
+    print('Total train time = %.1f s' % (sum(train_times)))
     if args.out > 0:
         print("The best GMF model is saved to %s" %(model_out_file))

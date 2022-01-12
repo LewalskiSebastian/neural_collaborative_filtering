@@ -31,7 +31,7 @@ _similarity = None
 _users_history = None
 
 
-def evaluate_model(model, testRatings, testNegatives, K, num_thread, items_pop, items_features, users_history, similarity='jaccard'):
+def evaluate_model(model, testRatings, testNegatives, K, num_thread, items_pop, items_features, users_history, similarity='jaccard', is_simple=False):
     """
     Evaluate the performance (Hit_Ratio, NDCG) of top-K recommendation
     Return: score of each test rating.
@@ -53,6 +53,22 @@ def evaluate_model(model, testRatings, testNegatives, K, num_thread, items_pop, 
     _similarity = similarity
     _users_history = users_history
 
+    if is_simple:
+        hits, ndcgs = [], []
+        if (num_thread > 1):  # Multi-thread
+            pool = multiprocessing.Pool(processes=num_thread)
+            res = pool.map(eval_one_rating, range(len(_testRatings)))
+            pool.close()
+            pool.join()
+            hits = [r[0] for r in res]
+            ndcgs = [r[1] for r in res]
+            return (hits, ndcgs)
+        # Single thread
+        for idx in xrange(len(_testRatings)):
+            (hr, ndcg) = eval_one_rating(idx)
+            hits.append(hr)
+            ndcgs.append(ndcg)
+        return (hits, ndcgs)
     hits, ndcgs, novelties, expectednesses, IDLs, unserendipities = [], [], [], [], [], []
     if (num_thread > 1):  # Multi-thread
         pool = multiprocessing.Pool(processes=num_thread)
@@ -77,6 +93,28 @@ def evaluate_model(model, testRatings, testNegatives, K, num_thread, items_pop, 
         unserendipities.append(unserendipity)
     return (hits, ndcgs, novelties, expectednesses, IDLs, unserendipities)
 
+
+def eval_one_rating_simple(idx):
+    rating = _testRatings[idx]
+    items = _testNegatives[idx]
+    u = rating[0]
+    gtItem = rating[1]
+    items.append(gtItem)
+    # Get prediction scores
+    map_item_score = {}
+    users = np.full(len(items), u, dtype='int32')
+    predictions = _model.predict([users, np.array(items)],
+                                 batch_size=100, verbose=0)
+    for i in xrange(len(items)):
+        item = items[i]
+        map_item_score[item] = predictions[i]
+    items.pop()
+
+    # Evaluate top rank list
+    ranklist = heapq.nlargest(_K, map_item_score, key=map_item_score.get)
+    hr = getHitRatio(ranklist, gtItem)
+    ndcg = getNDCG(ranklist, gtItem)
+    return (hr, ndcg)
 
 def eval_one_rating(idx):
     rating = _testRatings[idx]
